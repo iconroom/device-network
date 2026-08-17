@@ -4,7 +4,14 @@ const { WebSocketServer, WebSocket } = require('ws');
 const path = require('path');
 
 const app = express();
+
+// Serve static files from the public folder
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Explicit route to serve the dashboard interface on load
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
