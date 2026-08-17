@@ -5,40 +5,202 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Device Control Hub</title>
     <style>
-        body { font-family: monospace; background: #0f172a; color: #f8fafc; margin: 20px; }
-        h2, h3 { color: #38bdf8; }
-        ul { list-style-type: none; padding: 0; }
-        li { background: #1e293b; padding: 10px; margin-bottom: 5px; border-radius: 4px; border-left: 4px solid #38bdf8; cursor: pointer; transition: background 0.2s; }
-        li:hover { background: #334155; }
-        input, button { padding: 10px; margin: 5px 0; background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 4px; }
-        button { background: #0284c7; cursor: pointer; font-weight: bold; }
-        button:hover { background: #0369a1; }
-        #output { background: #020617; color: #4ade80; padding: 15px; border-radius: 6px; height: 300px; overflow-y: auto; border: 1px solid #1e293b; white-space: pre-wrap; }
-        .status { font-size: 14px; margin-left: 10px; color: #f59e0b; }
-        .online { color: #22c55e; }
-        .downloads { margin-bottom: 20px; }
-        .downloads a { text-decoration: none; }
+        :root {
+            --bg-color: #090d16;
+            --surface-color: #111827;
+            --surface-border: #1f293d;
+            --primary: #0ea5e9;
+            --primary-hover: #0284c7;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-green: #10b981;
+            --accent-yellow: #f59e0b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            background: var(--bg-color); 
+            color: var(--text-main); 
+            padding: 30px; 
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--surface-border);
+            padding-bottom: 20px;
+        }
+
+        h1 { font-size: 1.5rem; font-weight: 600; color: #f8fafc; letter-spacing: -0.025em; }
+        
+        .status-pill { 
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 20px;
+            font-size: 0.85rem; 
+            color: var(--accent-yellow);
+            font-weight: 500;
+        }
+
+        .status-pill.online { color: var(--accent-green); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+        .card {
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        h2 { font-size: 1.1rem; font-weight: 600; color: #38bdf8; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+        /* Device List Grid */
+        ul { list-style-type: none; }
+        li { 
+            background: #0d1322; 
+            padding: 14px 18px; 
+            margin-bottom: 8px; 
+            border-radius: 8px; 
+            border: 1px solid var(--surface-border);
+            cursor: pointer; 
+            transition: all 0.2s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+        li:hover { 
+            border-color: var(--primary);
+            background: #131c31;
+            transform: translateY(-1px);
+        }
+        .empty-state { color: var(--text-muted); text-align: center; padding: 20px; font-style: italic; }
+
+        /* Console Controls */
+        .control-group {
+            display: grid;
+            grid-template-columns: 1fr 2fr auto;
+            gap: 12px;
+        }
+        @media(max-width: 768px) {
+            .control-group { grid-template-columns: 1fr; }
+        }
+
+        input { 
+            padding: 12px 16px; 
+            background: #090d16; 
+            border: 1px solid var(--surface-border); 
+            color: #fff; 
+            border-radius: 8px; 
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--primary); }
+
+        button { 
+            padding: 12px 20px; 
+            background: var(--primary); 
+            border: none; 
+            color: #fff; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: background 0.2s, transform 0.1s; 
+        }
+        button:hover { background: var(--primary-hover); }
+        button:active { transform: scale(0.98); }
+
+        /* Terminal Output */
+        #output { 
+            background: #04060b; 
+            color: #4ade80; 
+            padding: 20px; 
+            border-radius: 8px; 
+            height: 280px; 
+            overflow-y: auto; 
+            border: 1px solid var(--surface-border); 
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            white-space: pre-wrap; 
+        }
+
+        /* Downloads Section */
+        .downloads-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        @media(max-width: 768px) {
+            .downloads-grid { grid-template-columns: 1fr; }
+        }
+        .downloads-grid a { text-decoration: none; display: block; }
+        .downloads-grid button { width: 100%; background: #1e293b; border: 1px solid var(--surface-border); }
+        .downloads-grid button:hover { background: #334155; border-color: var(--primary); }
     </style>
 </head>
 <body>
-    <h2>Connected Devices <span id="connStatus" class="status">(Connecting...)</span></h2>
-    <ul id="deviceList"><li>Waiting for devices to register...</li></ul>
-    
-    <h3>Remote Execution Console</h3>
-    <div>
-        <input type="text" id="targetId" placeholder="Target Device ID">
-        <input type="text" id="cmd" placeholder="Command (e.g. ls -la, uptime)">
-        <button onclick="sendCommand()">Execute Command</button>
-    </div>
-    
-    <h3>Execution Logs</h3>
-    <pre id="output">// Real-time command responses will appear here...</pre>
+    <div class="container">
+        <header>
+            <h1>⚡ Network Control Hub</h1>
+            <div id="connStatus" class="status-pill">
+                <span class="status-dot"></span>
+                <span id="connStatusText">Connecting...</span>
+            </div>
+        </header>
 
-    <div class="downloads">
-        <h3>Download Agent Installer</h3>
-        <a href="/downloads/AgentSetup-win.exe" download><button>Download for Windows</button></a>
-        <a href="/downloads/AgentSetup-macos" download><button>Download for Mac</button></a>
-        <a href="/downloads/AgentSetup-linux" download><button>Download for Linux</button></a>
+        <!-- Download Section -->
+        <div class="card">
+            <h2>📦 Agent Installers</h2>
+            <div class="downloads-grid">
+                <a href="https://github.com/iconroom/device-network/releases/download/v9.0.0/AgentSetup-win.exe" download><button>Windows Agent (.exe)</button></a>
+                <a href="https://github.com/iconroom/device-network/releases/download/v9.0.0/AgentSetup-macos" download><button>macOS Agent</button></a>
+                <a href="https://github.com/iconroom/device-network/releases/download/v9.0.0/AgentSetup-linux" download><button>Linux Agent</button></a>
+            </div>
+        </div>
+
+        <!-- Devices Section -->
+        <div class="card">
+            <h2>💻 Active Target Devices</h2>
+            <ul id="deviceList">
+                <li class="empty-state">Waiting for devices to register...</li>
+            </ul>
+        </div>
+        
+        <!-- Execution Console -->
+        <div class="card">
+            <h2>⚙️ Remote Execution Console</h2>
+            <div class="control-group">
+                <input type="text" id="targetId" placeholder="Target Device ID">
+                <input type="text" id="cmd" placeholder="Command (e.g. uptime, ls -la)">
+                <button onclick="sendCommand()">Execute</button>
+            </div>
+        </div>
+        
+        <!-- Logs Section -->
+        <div class="card">
+            <h2>📋 Real-Time Execution Logs</h2>
+            <pre id="output">// Live command outputs will stream here...</pre>
+        </div>
     </div>
 
     <script>
@@ -49,8 +211,9 @@
             ws = new WebSocket(`${protocol}${location.host}`);
 
             ws.onopen = () => {
-                document.getElementById('connStatus').className = 'status online';
-                document.getElementById('connStatus').innerText = '(Connected)';
+                const badge = document.getElementById('connStatus');
+                badge.className = 'status-pill online';
+                document.getElementById('connStatusText').innerText = 'Connected';
             };
 
             ws.onmessage = (event) => {
@@ -58,23 +221,27 @@
                 if (data.type === 'device_list') {
                     const list = document.getElementById('deviceList');
                     if (data.devices.length === 0) {
-                        list.innerHTML = '<li>No active target devices connected.</li>';
+                        list.innerHTML = '<li class="empty-state">No active target devices connected.</li>';
                     } else {
                         list.innerHTML = data.devices.map(d => 
-                            `<li onclick="selectDevice('${d.id}')"><b>ID:</b> ${d.id} | <b>Platform:</b> ${d.info.platform} (${d.info.arch}) | <b>Uptime:</b> ${Math.floor(d.info.uptime / 3600)}h <i>(Click to select)</i></li>`
+                            `<li onclick="selectDevice('${d.id}')">
+                                <span><b>ID:</b> ${d.id}</span>
+                                <span style="color: var(--text-muted);">${d.info.platform} (${d.info.arch}) &bull; Uptime: ${Math.floor(d.info.uptime / 3600)}h</span>
+                            </li>`
                         ).join('');
                     }
                 }
                 if (data.type === 'log') {
                     const output = document.getElementById('output');
-                    output.innerText += `\n[${new Date().toLocaleTimeString()}] [${data.deviceId}]:\n${data.result}\n----------------------------------------`;
+                    output.innerText += `\n[${new Date().toLocaleTimeString()}] [Device: ${data.deviceId}]:\n${data.result}\n----------------------------------------`;
                     output.scrollTop = output.scrollHeight;
                 }
             };
 
             ws.onclose = () => {
-                document.getElementById('connStatus').className = 'status';
-                document.getElementById('connStatus').innerText = '(Disconnected - Reconnecting...)';
+                const badge = document.getElementById('connStatus');
+                badge.className = 'status-pill';
+                document.getElementById('connStatusText').innerText = 'Reconnecting...';
                 setTimeout(connectWS, 3000);
             };
         }
