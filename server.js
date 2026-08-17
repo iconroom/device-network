@@ -5,7 +5,27 @@ const path = require('path');
 
 const app = express();
 
-// Serve static files from the public folder
+// ==================== CONFIGURATION ====================
+const ADMIN_USER = 'ICONNETWORK';           // Change this to your desired username
+const ADMIN_PASS = 'LORDicon@30';  // Change this to a strong password
+// =======================================================
+
+// Authentication Middleware
+app.use((req, res, next) => {
+    const authHeader = req.headers.authorization;
+
+    if (authHeader) {
+        const [user, pass] = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
+        if (user === ADMIN_USER && pass === ADMIN_PASS) {
+            return next();
+        }
+    }
+
+    res.set('WWW-Authenticate', 'Basic realm="Device Control Hub"');
+    return res.status(401).send('Authentication required to access this control hub.');
+});
+
+// Serve static files from the public folder (protected by auth above)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Explicit route to serve the dashboard interface on load
