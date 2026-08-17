@@ -16,6 +16,8 @@
         #output { background: #020617; color: #4ade80; padding: 15px; border-radius: 6px; height: 300px; overflow-y: auto; border: 1px solid #1e293b; white-space: pre-wrap; }
         .status { font-size: 14px; margin-left: 10px; color: #f59e0b; }
         .online { color: #22c55e; }
+        .downloads { margin-bottom: 20px; }
+        .downloads a { text-decoration: none; }
     </style>
 </head>
 <body>
@@ -31,6 +33,13 @@
     
     <h3>Execution Logs</h3>
     <pre id="output">// Real-time command responses will appear here...</pre>
+
+    <div class="downloads">
+        <h3>Download Agent Installer</h3>
+        <a href="/downloads/AgentSetup-win.exe" download><button>Download for Windows</button></a>
+        <a href="/downloads/AgentSetup-macos" download><button>Download for Mac</button></a>
+        <a href="/downloads/AgentSetup-linux" download><button>Download for Linux</button></a>
+    </div>
 
     <script>
         let ws;
