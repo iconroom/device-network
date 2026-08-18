@@ -219,7 +219,6 @@
 
     <script>
         let ws;
-        const localDiscoveredDevices = new Map();
 
         function connectWS() {
             const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -229,11 +228,15 @@
                 const badge = document.getElementById('connStatus');
                 badge.className = 'status-pill online';
                 document.getElementById('connStatusText').innerText = 'Connected';
+                
+                // Identify as dashboard to receive state updates
+                ws.send(JSON.stringify({ type: 'dashboard_init' }));
             };
 
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
+                    
                     if (data.type === 'device_list') {
                         const list = document.getElementById('deviceList');
                         if (!data.devices || data.devices.length === 0) {
@@ -247,7 +250,8 @@
                             ).join('');
                         }
                     }
-                    if (data.type === 'log') {
+                    
+                    if (data.type === 'command_output') {
                         const output = document.getElementById('output');
                         output.innerText += `\n[${new Date().toLocaleTimeString()}] [Device: ${data.deviceId}]:\n${data.result}\n----------------------------------------`;
                         output.scrollTop = output.scrollHeight;
@@ -286,7 +290,8 @@
             if (!targetId || !command) return alert('Provide target ID and command');
             if (!ws || ws.readyState !== WebSocket.OPEN) return alert('WebSocket connection is offline.');
             
-            ws.send(JSON.stringify({ type: 'command', targetId, command }));
+            // Matches backend expectations: type 'exec' with targetId and command
+            ws.send(JSON.stringify({ type: 'exec', targetId, command }));
             
             const output = document.getElementById('output');
             output.innerText += `\n[${new Date().toLocaleTimeString()}] [Dispatched -> ${targetId}]: ${command}`;
@@ -295,13 +300,11 @@
             document.getElementById('cmd').value = '';
         }
 
-        // Local Network UDP Scan simulation placeholder (handled via browser network or local bridge when running locally)
         function scanLocalNetwork() {
             const localList = document.getElementById('localDeviceList');
             localList.innerHTML = '<li class="empty-state">Scanning local subnet for UDP responders...</li>';
             
             setTimeout(() => {
-                // If running locally alongside agent broadcasting on UDP port 41234
                 localList.innerHTML = '<li class="empty-state">Note: Local browser security restricts direct raw UDP sockets. Use your local desktop client app or companion service to view local P2P nodes directly.</li>';
             }, 1500);
         }
