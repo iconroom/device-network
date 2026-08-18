@@ -6,11 +6,12 @@ const path = require('path');
 const app = express();
 
 // ==================== CONFIGURATION ====================
-const ADMIN_USER = 'ICONNETWORK';           // Change this to your desired username
-const ADMIN_PASS = 'LORDicon@30';  // Change this to a strong password
+const ADMIN_USER = 'ICONNETWORK';           // Web Dashboard Username
+const ADMIN_PASS = 'LORDicon@30';           // Web Dashboard Password
+const AGENT_SECRET = 'my-agent-secret-123'; // Secret token for connecting agents
 // =======================================================
 
-// Authentication Middleware
+// Authentication Middleware for the Web Dashboard
 app.use((req, res, next) => {
     const authHeader = req.headers.authorization;
 
@@ -45,7 +46,14 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
+            // Optional: If you want to secure agent registrations/messages with the token, 
+            // you can check it here (dashboards typically connect via HTTP first, but agents connect directly via WS):
             if (data.type === 'register') {
+                if (data.secret && data.secret !== AGENT_SECRET) {
+                    ws.send(JSON.stringify({ type: 'error', result: 'Unauthorized: Invalid agent secret.' }));
+                    return ws.close();
+                }
+
                 deviceId = data.deviceId;
                 devices.set(deviceId, { ws, info: data.info });
                 broadcastDeviceList();
