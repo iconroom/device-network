@@ -69,7 +69,7 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
-        h2 { font-size: 1.1rem; font-weight: 600; color: #38bdf8; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        h2 { font-size: 1.1rem; font-weight: 600; color: #38bdf8; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
         /* Device List Grid */
         ul { list-style-type: none; }
@@ -116,18 +116,21 @@
         input:focus { border-color: var(--primary); }
 
         button { 
-            padding: 12px 20px; 
+            padding: 10px 16px; 
             background: var(--primary); 
             border: none; 
             color: #fff; 
             border-radius: 8px; 
             cursor: pointer; 
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             transition: background 0.2s, transform 0.1s; 
         }
         button:hover { background: var(--primary-hover); }
         button:active { transform: scale(0.98); }
+
+        .btn-secondary { background: #1e293b; border: 1px solid var(--surface-border); }
+        .btn-secondary:hover { background: #334155; }
 
         /* Terminal Output */
         #output { 
@@ -178,11 +181,22 @@
             </div>
         </div>
 
-        <!-- Devices Section -->
+        <!-- Cloud Devices Section -->
         <div class="card">
-            <h2>💻 Active Target Devices</h2>
+            <h2>💻 Cloud Connected Devices</h2>
             <ul id="deviceList">
-                <li class="empty-state">Waiting for devices to register...</li>
+                <li class="empty-state">Waiting for cloud devices to register...</li>
+            </ul>
+        </div>
+
+        <!-- Local Network Discovery Section -->
+        <div class="card">
+            <h2>
+                <span>📡 Local Network (UDP P2P) Devices</span>
+                <button class="btn-secondary" onclick="scanLocalNetwork()">Scan Local Network</button>
+            </h2>
+            <ul id="localDeviceList">
+                <li class="empty-state">Click 'Scan Local Network' to discover nearby agents.</li>
             </ul>
         </div>
         
@@ -191,7 +205,7 @@
             <h2>⚙️ Remote Execution Console</h2>
             <div class="control-group">
                 <input type="text" id="targetId" placeholder="Target Device ID">
-                <input type="text" id="cmd" placeholder="Command (e.g. uptime, ls -la)">
+                <input type="text" id="cmd" placeholder="Command (e.g. uptime, ls -la)" onkeypress="handleKeyPress(event)">
                 <button onclick="sendCommand()">Execute</button>
             </div>
         </div>
@@ -205,6 +219,7 @@
 
     <script>
         let ws;
+        const localDiscoveredDevices = new Map();
 
         function connectWS() {
             const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -217,24 +232,28 @@
             };
 
             ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'device_list') {
-                    const list = document.getElementById('deviceList');
-                    if (data.devices.length === 0) {
-                        list.innerHTML = '<li class="empty-state">No active target devices connected.</li>';
-                    } else {
-                        list.innerHTML = data.devices.map(d => 
-                            `<li onclick="selectDevice('${d.id}')">
-                                <span><b>ID:</b> ${d.id}</span>
-                                <span style="color: var(--text-muted);">${d.info.platform} (${d.info.arch}) &bull; Uptime: ${Math.floor(d.info.uptime / 3600)}h</span>
-                            </li>`
-                        ).join('');
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'device_list') {
+                        const list = document.getElementById('deviceList');
+                        if (!data.devices || data.devices.length === 0) {
+                            list.innerHTML = '<li class="empty-state">No active target devices connected.</li>';
+                        } else {
+                            list.innerHTML = data.devices.map(d => 
+                                `<li onclick="selectDevice('${d.id}')">
+                                    <span><b>ID:</b> ${d.id}</span>
+                                    <span style="color: var(--text-muted);">${d.info.platform || 'unknown'} (${d.info.arch || ''}) &bull; Uptime: ${Math.floor((d.info.uptime || 0) / 3600)}h</span>
+                                </li>`
+                            ).join('');
+                        }
                     }
-                }
-                if (data.type === 'log') {
-                    const output = document.getElementById('output');
-                    output.innerText += `\n[${new Date().toLocaleTimeString()}] [Device: ${data.deviceId}]:\n${data.result}\n----------------------------------------`;
-                    output.scrollTop = output.scrollHeight;
+                    if (data.type === 'log') {
+                        const output = document.getElementById('output');
+                        output.innerText += `\n[${new Date().toLocaleTimeString()}] [Device: ${data.deviceId}]:\n${data.result}\n----------------------------------------`;
+                        output.scrollTop = output.scrollHeight;
+                    }
+                } catch (err) {
+                    console.error('Failed to parse incoming message:', err);
                 }
             };
 
@@ -244,10 +263,21 @@
                 document.getElementById('connStatusText').innerText = 'Reconnecting...';
                 setTimeout(connectWS, 3000);
             };
+
+            ws.onerror = (err) => {
+                console.error('WebSocket error encountered:', err);
+                ws.close();
+            };
         }
 
         function selectDevice(id) {
             document.getElementById('targetId').value = id;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendCommand();
+            }
         }
 
         function sendCommand() {
@@ -255,8 +285,25 @@
             const command = document.getElementById('cmd').value.trim();
             if (!targetId || !command) return alert('Provide target ID and command');
             if (!ws || ws.readyState !== WebSocket.OPEN) return alert('WebSocket connection is offline.');
+            
             ws.send(JSON.stringify({ type: 'command', targetId, command }));
+            
+            const output = document.getElementById('output');
+            output.innerText += `\n[${new Date().toLocaleTimeString()}] [Dispatched -> ${targetId}]: ${command}`;
+            output.scrollTop = output.scrollHeight;
+
             document.getElementById('cmd').value = '';
+        }
+
+        // Local Network UDP Scan simulation placeholder (handled via browser network or local bridge when running locally)
+        function scanLocalNetwork() {
+            const localList = document.getElementById('localDeviceList');
+            localList.innerHTML = '<li class="empty-state">Scanning local subnet for UDP responders...</li>';
+            
+            setTimeout(() => {
+                // If running locally alongside agent broadcasting on UDP port 41234
+                localList.innerHTML = '<li class="empty-state">Note: Local browser security restricts direct raw UDP sockets. Use your local desktop client app or companion service to view local P2P nodes directly.</li>';
+            }, 1500);
         }
 
         connectWS();
