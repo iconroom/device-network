@@ -1,114 +1,125 @@
 const express = require('express');
-const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
+const http = require('http');
 const path = require('path');
 
 const app = express();
-
-// ==================== CONFIGURATION ====================
-const ADMIN_USER = 'ICONNETWORK';           // Web Dashboard Username
-const ADMIN_PASS = 'LORDicon@30';           // Web Dashboard Password
-const AGENT_SECRET = 'my-agent-secret-123'; // Secret token for connecting agents
-// =======================================================
-
-// Authentication Middleware for the Web Dashboard
-app.use((req, res, next) => {
-    const authHeader = req.headers.authorization;
-
-    if (authHeader) {
-        const [user, pass] = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
-        if (user === ADMIN_USER && pass === ADMIN_PASS) {
-            return next();
-        }
-    }
-
-    res.set('WWW-Authenticate', 'Basic realm="Device Control Hub"');
-    return res.status(401).send('Authentication required to access this control hub.');
-});
-
-// Serve static files from the public folder (protected by auth above)
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Explicit route to serve the dashboard interface on load
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const devices = new Map();
+// Basic Auth middleware for the management dashboard
+const ADMIN_USER = 'ICONNETWORK';
+const ADMIN_PASS = 'LORDicon@30';
 
-wss.on('connection', (ws) => {
-    let deviceId = null;
+function checkAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        res.setHeader('WWW-Authenticate', 'Basic realm="RMM Dashboard"');
+        return res.status(401).send('Authentication required.');
+    }
+    const base64Credentials = authHeader.split(' ')[1];
+    const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
+    const [username, password] = credentials.split(':');
+
+    if (username === ADMIN_USER && password === ADMIN_PASS) {
+        return next();
+    }
+    res.setHeader('WWW-Authenticate', 'Basic realm="RMM Dashboard"');
+    return res.status(401).send('Invalid authentication credentials.');
+}
+
+// Protect the dashboard UI route
+app.get('/', checkAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Serve static dashboard files securely behind auth check
+app.use('/assets', checkAuth, express.static(path.join(__dirname, 'public')));
+
+// Storage for active connections
+const agents = new Map(); // deviceId -> WebSocket instance
+const dashboards = new Set(); // Dashboard WebSockets
+
+wss.on('connection', (ws, req) => {
+    let clientType = 'unknown';
+    let assignedId = null;
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
 
-            // Optional: If you want to secure agent registrations/messages with the token, 
-            // you can check it here (dashboards typically connect via HTTP first, but agents connect directly via WS):
+            // 1. Agent Registration
             if (data.type === 'register') {
-                if (data.secret && data.secret !== AGENT_SECRET) {
-                    ws.send(JSON.stringify({ type: 'error', result: 'Unauthorized: Invalid agent secret.' }));
-                    return ws.close();
-                }
-
-                deviceId = data.deviceId;
-                devices.set(deviceId, { ws, info: data.info });
+                clientType = 'agent';
+                assignedId = data.deviceId;
+                agents.set(assignedId, { ws, info: data.info || {} });
+                console.log(`[Hub] Agent registered: ${assignedId}`);
                 broadcastDeviceList();
+            } 
+            // 2. Dashboard Connection Identification
+            else if (data.type === 'dashboard_init') {
+                clientType = 'dashboard';
+                dashboards.add(ws);
+                console.log('[Hub] Dashboard client connected');
+                ws.send(JSON.stringify({ type: 'device_list', devices: getDeviceList() }));
             }
-
-            if (data.type === 'command') {
-                const target = devices.get(data.targetId);
-                if (target && target.ws.readyState === WebSocket.OPEN) {
-                    target.ws.send(JSON.stringify({ type: 'exec', command: data.command }));
+            // 3. Command execution request sent from Dashboard to an Agent
+            else if (clientType === 'dashboard' && data.type === 'exec') {
+                const targetAgent = agents.get(data.targetId);
+                if (targetAgent && targetAgent.ws.readyState === WebSocket.OPEN) {
+                    targetAgent.ws.send(JSON.stringify({ type: 'exec', command: data.command }));
                 } else {
-                    broadcastToDashboards({
-                        type: 'log',
-                        deviceId: data.targetId,
-                        result: 'Error: Target device is offline or unreachable.'
-                    });
+                    ws.send(JSON.stringify({ type: 'error', message: 'Target device offline or unavailable.' }));
                 }
             }
-
-            if (data.type === 'response') {
-                broadcastToDashboards({
-                    type: 'log',
-                    deviceId,
-                    result: data.result
-                });
+            // 4. Response from Agent sent back to Dashboard
+            else if (clientType === 'agent' && data.type === 'response') {
+                console.log(`[Hub] Response received from ${assignedId}`);
+                for (let dashWs of dashboards) {
+                    if (dashWs.readyState === WebSocket.OPEN) {
+                        dashWs.send(JSON.stringify({
+                            type: 'command_output',
+                            deviceId: assignedId,
+                            result: data.result
+                        }));
+                    }
+                }
             }
         } catch (err) {
-            console.error('Payload processing error:', err.message);
+            console.error('[Hub] Error processing message:', err.message);
         }
     });
 
     ws.on('close', () => {
-        if (deviceId) {
-            devices.delete(deviceId);
+        if (clientType === 'agent' && assignedId) {
+            agents.delete(assignedId);
+            console.log(`[Hub] Agent disconnected: ${assignedId}`);
             broadcastDeviceList();
+        } else if (clientType === 'dashboard') {
+            dashboards.delete(ws);
+            console.log('[Hub] Dashboard client disconnected');
         }
     });
 });
 
-function broadcastDeviceList() {
-    const list = Array.from(devices.entries()).map(([id, d]) => ({
-        id,
-        info: d.info
-    }));
-    broadcastToDashboards({ type: 'device_list', devices: list });
+function getDeviceList() {
+    const list = [];
+    for (let [id, data] of agents.entries()) {
+        list.push({ id, info: data.info });
+    }
+    return list;
 }
 
-function broadcastToDashboards(payload) {
-    wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(payload));
+function broadcastDeviceList() {
+    const payload = JSON.stringify({ type: 'device_list', devices: getDeviceList() });
+    for (let dashWs of dashboards) {
+        if (dashWs.readyState === WebSocket.OPEN) {
+            dashWs.send(payload);
         }
-    });
+    }
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Control Hub active on port ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`[Hub] Server running on port ${PORT}`);
 });
